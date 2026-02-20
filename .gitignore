@@ -1,0 +1,65 @@
+# Caché y archivos compilados
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Entornos virtuales (¡Muy importante no subirlos!)
+venv/
+env/
+.venv/
+.env_folder/
+env.bak/
+venv.bak/
+
+# Paquetes y dependencias locales
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Ignorar drivers de navegadores locales (Selenium/Playwright)
+chromedriver
+geckodriver
+ghostdriver
+.playwright/
+
+# Archivos de datos masivos (Evita saturar GitHub)
+*.csv
+*.xlsx
+*.sqlite3
+*.db
+
+# Imágenes procesadas temporalmente (como las de las recetas)
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+# Si necesitas subir imágenes de prueba, crea una carpeta específica y exceptúala.
+
+# (API Keys de OpenRouter, Supabase, etc.)
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.pem
+*.key
+
+# Logs de ejecución en el servidor o locales
+*.log
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# IntelliJ / PyCharm
+.idea/
+
+# Windows / Mac
+.DS_Store
+Thumbs.db
+Desktop.ini
