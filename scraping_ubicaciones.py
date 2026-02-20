@@ -290,8 +290,16 @@ async def scraping_digemid(cola: list[dict]):
                         if resp.status == 429:
                             rate_limited = True
 
-                    except Exception:
-                        pass  # Sin red de autocomplete, continuamos
+                    except Exception as autocomplete_ex:
+                        # Si la conexión se cerró (429 de Cloudflare cierra el socket)
+                        # re-lanzar para que el except externo haga el cooldown + restart
+                        err_str = str(autocomplete_ex)
+                        if any(k in err_str for k in [
+                            "Connection closed", "TargetClosedError",
+                            "Target closed", "Browser closed", "context or brow"
+                        ]):
+                            raise  # -> lo atrapa el except externo con cooldown 2h
+                        # Timeout o sin red de autocomplete → continuar normalmente
 
                     if rate_limited:
                         print(f"\n   [🚨] Rate limit (429). Esperando {COOLDOWN_SEGUNDOS//3600}h...")
@@ -315,30 +323,33 @@ async def scraping_digemid(cola: list[dict]):
                         intentos += 1
                         continue
 
-                    # ── Verificar que aparezca al menos 1 opción en el dropdown ──
-                    # Si no hay ningún ítem, no tiene sentido continuar → skip
-                    await asyncio.sleep(1.0)
-                    SELECTORES_DROPDOWN = [
-                        "ul.dropdown-menu li",
-                        ".autocomplete-item",
-                        "li[role='option']",
-                    ]
+                    # ── Esperar y hacer click en la 1ra opción del dropdown ──
+                    # Confirmado con inspección en vivo: DIGEMID usa Angular con esta estructura:
+                    #   <ul class="dropdown-menu show" scrollable="true">
+                    #     <li class="ng-star-inserted">
+                    #       <div class="ng-star-inserted">
+                    #         <a class="ng-tns-c0-0 ng-star-inserted">TEXTO</a>
+                    #       </div>
+                    #     </li>
+                    #   </ul>
                     dropdown_visible = False
-                    for sel_drop in SELECTORES_DROPDOWN:
-                        try:
-                            items = await page.query_selector_all(sel_drop)
-                            if items:
-                                # Click en el primero
-                                await items[0].click()
-                                dropdown_visible = True
-                                break
-                        except:
-                            pass
+                    try:
+                        # Esperar hasta 4s a que aparezca el contenedor del dropdown
+                        await page.wait_for_selector("ul.dropdown-menu.show", timeout=4000, state="visible")
+                        # Obtener todos los items clicables
+                        items = await page.query_selector_all("ul.dropdown-menu.show a.ng-star-inserted")
+                        if items:
+                            await items[0].click()
+                            dropdown_visible = True
+                            print(f"   [✓] Opción seleccionada del autocomplete.")
+                    except Exception:
+                        pass
 
                     if not dropdown_visible:
-                        print(f"   [📭] Sin opciones en autocomplete. Saltando '{texto_exacto}'.")
-                        limpiar_cola(tid)
-                        exito = True
+                        # No apareció dropdown en 4s: error transitorio (429 previo, red lenta, etc.)
+                        # → reintento en lugar de borrar de la cola
+                        print(f"   [⚠️] Sin opciones en autocomplete para '{texto_exacto}'. Reintentando...")
+                        intentos += 1
                         continue
 
                     await asyncio.sleep(0.5)
