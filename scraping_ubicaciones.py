@@ -40,7 +40,7 @@ CARPETA_EXCELS.mkdir(exist_ok=True)
 
 AREQUIPA_VALUE         = "04"       # Código del <select> departamento
 COOLDOWN_SEGUNDOS      = 7200       # 2 horas si hay rate-limit
-PAUSA_ENTRE_BUSQUEDAS  = (2, 5)     # Segundos aleatorios entre búsquedas
+PAUSA_ENTRE_BUSQUEDAS  = (1.0, 2.0) # Segundos aleatorios entre búsquedas
 
 # ────────────────────────────────────────────
 #  SUPABASE CLIENT
@@ -276,15 +276,26 @@ async def scraping_digemid(cola: list[dict]):
                     await page.fill(sel_input, "")
                     await asyncio.sleep(0.4)
 
-                    await page.fill(sel_input, texto_exacto[:-1])
+                    # DIGEMID falla si hay espacios "1 g" o " + ". Normalizamos la búsqueda.
+                    texto_busqueda = re.sub(r'(\d+)\s+([a-zA-Z]+)', r'\1\2', texto_exacto)
+                    texto_busqueda = re.sub(r'\s*\+\s*', '+', texto_busqueda)
 
+                    # Tipear todo menos las 3 últimas letras de golpe, y luego tipear las 3 últimas 1 por 1
+                    letras_finales = texto_busqueda[-3:] if len(texto_busqueda) > 3 else texto_busqueda
+                    base_busqueda = texto_busqueda[:-3] if len(texto_busqueda) > 3 else ""
+
+                    if base_busqueda:
+                        await page.fill(sel_input, base_busqueda)
+                        await asyncio.sleep(0.2)
+                    
                     # Escuchar respuesta de autocomplete buscando 429
                     rate_limited = False
                     try:
                         async with page.expect_response(
                             lambda r: "autocompleteciudadano" in r.url, timeout=8000
                         ) as resp_info:
-                            await page.type(sel_input, texto_exacto[-1], delay=random.randint(100, 300))
+                            for letra in letras_finales:
+                                await page.type(sel_input, letra, delay=random.randint(150, 300))
 
                         resp = await resp_info.value
                         if resp.status == 429:
@@ -302,26 +313,32 @@ async def scraping_digemid(cola: list[dict]):
                         # Timeout o sin red de autocomplete → continuar normalmente
 
                     if rate_limited:
-                        print(f"\n   [🚨] Rate limit (429). Esperando {COOLDOWN_SEGUNDOS//3600}h...")
-                        await asyncio.sleep(COOLDOWN_SEGUNDOS)
-                        intentos += 1
-                        continue
+                        print(f"\n   [🚨] Rate limit (429 HTTP) detectado en la API.")
+                        print(f"   [🛑] Abortando scraping web de inmediato.")
+                        try:
+                            await browser.close()
+                        except:
+                            pass
+                        return
 
                     # Detectar mensaje de bloqueo en UI
                     for sel_err in ["text=demasiadas solicitudes", "text=too many requests",
                                     "text=Servicio no disponible"]:
                         try:
                             if await page.is_visible(sel_err, timeout=800):
-                                print(f"\n   [🚨] Bloqueo UI. Esperando {COOLDOWN_SEGUNDOS//3600}h...")
-                                await asyncio.sleep(COOLDOWN_SEGUNDOS)
+                                print(f"\n   [🚨] Bloqueo UI detectado en la página.")
+                                print(f"   [🛑] Abortando scraping web de inmediato.")
                                 rate_limited = True
                                 break
                         except:
                             pass
 
                     if rate_limited:
-                        intentos += 1
-                        continue
+                        try:
+                            await browser.close()
+                        except:
+                            pass
+                        return
 
                     # ── Esperar y hacer click en la 1ra opción del dropdown ──
                     dropdown_visible = False
