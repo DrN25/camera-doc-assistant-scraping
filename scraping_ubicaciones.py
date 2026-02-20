@@ -324,24 +324,34 @@ async def scraping_digemid(cola: list[dict]):
                         continue
 
                     # ── Esperar y hacer click en la 1ra opción del dropdown ──
-                    # Confirmado con inspección en vivo: DIGEMID usa Angular con esta estructura:
-                    #   <ul class="dropdown-menu show" scrollable="true">
-                    #     <li class="ng-star-inserted">
-                    #       <div class="ng-star-inserted">
-                    #         <a class="ng-tns-c0-0 ng-star-inserted">TEXTO</a>
-                    #       </div>
-                    #     </li>
-                    #   </ul>
                     dropdown_visible = False
                     try:
-                        # Esperar hasta 4s a que aparezca el contenedor del dropdown
-                        await page.wait_for_selector("ul.dropdown-menu.show", timeout=4000, state="visible")
-                        # Obtener todos los items clicables
-                        items = await page.query_selector_all("ul.dropdown-menu.show a.ng-star-inserted")
-                        if items:
-                            await items[0].click()
-                            dropdown_visible = True
-                            print(f"   [✓] Opción seleccionada del autocomplete.")
+                        # Angular dropdown container
+                        container_sel_1 = "ul.dropdown-menu.show"
+                        container_sel_2 = "ngb-typeahead-window" # Fallback
+
+                        # 1. Esperamos a que surja un contenedor dropdown (hasta 4s)
+                        try:
+                            await page.wait_for_selector(f"{container_sel_1}, {container_sel_2}", timeout=4500, state="visible")
+                        except Exception as w_e:
+                            pass  # Se evaluará por failure abajo
+
+                        # 2. Buscamos todas las anclas o botones dentro
+                        SELECTORES = [
+                            f"{container_sel_1} a.ng-star-inserted",  # Estructura principal
+                            f"{container_sel_1} a",                   # Cualquier ancla
+                            f"{container_sel_1} li",                  # Directo sobre el li
+                            f"{container_sel_2} button"               # Si cambiaron a botones typeahead
+                        ]
+                        for selector in SELECTORES:
+                            items = await page.query_selector_all(selector)
+                            if items:
+                                # Tratar de forzar click si algo intercepta
+                                await items[0].click(force=True, timeout=2000)
+                                dropdown_visible = True
+                                print(f"   [✓] Opción seleccionada del autocomplete.")
+                                break
+
                     except Exception as wait_ex:
                         err_str = str(wait_ex)
                         if any(k in err_str for k in [
