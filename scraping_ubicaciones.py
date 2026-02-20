@@ -444,20 +444,13 @@ async def scraping_digemid(cola: list[dict]):
                         "Connection closed", "TargetClosedError",
                         "Target closed", "Browser closed", "context or brow"
                     ]):
-                        print(f"\n   [🚨] Conexión cerrada por el sitio (posible bloqueo).")
-                        print(f"   [⏳] Esperando {COOLDOWN_SEGUNDOS//3600} horas antes de continuar...")
+                        print(f"\n   [🚨] Conexión cerrada por el sitio (posible bloqueo o 429).")
+                        print(f"   [🛑] Abortando scraping web de inmediato.")
                         try:
                             await browser.close()
                         except:
                             pass
-                        await asyncio.sleep(COOLDOWN_SEGUNDOS)
-                        print("   [🔄] Reiniciando browser...")
-                        browser = await p.chromium.launch(headless=False)
-                        context = await browser.new_context(accept_downloads=True)
-                        page    = await context.new_page()
-                        # No incrementamos intentos: intentamos de nuevo limpio
-                        await asyncio.sleep(2)
-                        continue
+                        return  # Termina completamente la funcion scraping_digemid
                     else:
                         print(f"   [X] Error inesperado: {e}")
                         intentos += 1
