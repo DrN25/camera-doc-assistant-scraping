@@ -278,7 +278,7 @@ async def scraping_digemid(cola: list[dict]):
 
                     await page.fill(sel_input, texto_exacto[:-1])
 
-                    # Escuchar respuesta de autocomplete
+                    # Escuchar respuesta de autocomplete buscando 429
                     rate_limited = False
                     try:
                         async with page.expect_response(
@@ -291,7 +291,7 @@ async def scraping_digemid(cola: list[dict]):
                             rate_limited = True
 
                     except Exception:
-                        pass  # Sin autocomplete, continuamos igual
+                        pass  # Sin red de autocomplete, continuamos
 
                     if rate_limited:
                         print(f"\n   [🚨] Rate limit (429). Esperando {COOLDOWN_SEGUNDOS//3600}h...")
@@ -315,18 +315,31 @@ async def scraping_digemid(cola: list[dict]):
                         intentos += 1
                         continue
 
-                    # ── Click en primera sugerencia ───────────────────────
+                    # ── Verificar que aparezca al menos 1 opción en el dropdown ──
+                    # Si no hay ningún ítem, no tiene sentido continuar → skip
                     await asyncio.sleep(1.0)
-                    for sel_drop in [
-                        "ul.dropdown-menu li:first-child",
-                        ".autocomplete-item:first-child",
-                        "li[role='option']:first-child",
-                    ]:
+                    SELECTORES_DROPDOWN = [
+                        "ul.dropdown-menu li",
+                        ".autocomplete-item",
+                        "li[role='option']",
+                    ]
+                    dropdown_visible = False
+                    for sel_drop in SELECTORES_DROPDOWN:
                         try:
-                            await page.click(sel_drop, timeout=3000)
-                            break
+                            items = await page.query_selector_all(sel_drop)
+                            if items:
+                                # Click en el primero
+                                await items[0].click()
+                                dropdown_visible = True
+                                break
                         except:
                             pass
+
+                    if not dropdown_visible:
+                        print(f"   [📭] Sin opciones en autocomplete. Saltando '{texto_exacto}'.")
+                        limpiar_cola(tid)
+                        exito = True
+                        continue
 
                     await asyncio.sleep(0.5)
 
@@ -407,9 +420,31 @@ async def scraping_digemid(cola: list[dict]):
                         intentos += 1
 
                 except Exception as e:
-                    print(f"   [X] Error inesperado: {e}")
-                    intentos += 1
-                    await asyncio.sleep(3)
+                    error_msg = str(e)
+                    # ── Detectar cierre de conexión / browser crash ───────
+                    # Esto indica bloqueo del sitio: parar scraping, esperar 2h, reiniciar browser
+                    if any(k in error_msg for k in [
+                        "Connection closed", "TargetClosedError",
+                        "Target closed", "Browser closed", "context or brow"
+                    ]):
+                        print(f"\n   [🚨] Conexión cerrada por el sitio (posible bloqueo).")
+                        print(f"   [⏳] Esperando {COOLDOWN_SEGUNDOS//3600} horas antes de continuar...")
+                        try:
+                            await browser.close()
+                        except:
+                            pass
+                        await asyncio.sleep(COOLDOWN_SEGUNDOS)
+                        print("   [🔄] Reiniciando browser...")
+                        browser = await p.chromium.launch(headless=False)
+                        context = await browser.new_context(accept_downloads=True)
+                        page    = await context.new_page()
+                        # No incrementamos intentos: intentamos de nuevo limpio
+                        await asyncio.sleep(2)
+                        continue
+                    else:
+                        print(f"   [X] Error inesperado: {e}")
+                        intentos += 1
+                        await asyncio.sleep(3)
                 finally:
                     if not exito:
                         pausa = random.uniform(*PAUSA_ENTRE_BUSQUEDAS)
