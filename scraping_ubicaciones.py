@@ -342,7 +342,13 @@ async def scraping_digemid(cola: list[dict]):
                             await items[0].click()
                             dropdown_visible = True
                             print(f"   [✓] Opción seleccionada del autocomplete.")
-                    except Exception:
+                    except Exception as wait_ex:
+                        err_str = str(wait_ex)
+                        if any(k in err_str for k in [
+                            "Connection closed", "TargetClosedError",
+                            "Target closed", "Browser closed", "context or brow"
+                        ]):
+                            raise
                         pass
 
                     if not dropdown_visible:
